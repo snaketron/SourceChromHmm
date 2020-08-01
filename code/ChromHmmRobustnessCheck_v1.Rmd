@@ -1,0 +1,807 @@
+---
+title: 'ChromHMM: robustness check'
+author: "SK"
+date: "30.01.2020"
+output: 
+  html_document: 
+    toc: yes
+---
+
+
+
+```{r setup, include = FALSE, warning = FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      comment = FALSE, 
+                      warning = FALSE, 
+                      message = FALSE)
+```
+
+
+
+```{r}
+source("code/util/ChromHmmUtilities.R")
+source("code/util/GeneralUtilities.R")
+require("ggplot2")
+require("gridExtra")
+require("reshape2")
+require("tidyr")
+cell.type.col <- c("orange", "#4682b4")
+```
+
+
+# Consensus peak datasets
+
+Thusfar we used the *consensus* peaks from different biological replicates of six 
+marks from two cell populations (PC and HC) to discover epigenetic patterns with 
+ChromHMM. The concensus peaks were constructed based on 3 replicates (per mark) in 
+PC and 2 replicates (per mark) in HC. Based on this data we fitted a 15-state
+ChromHMM model (M0).
+
+To test the robustness of M0, we created 3 sets of conensus datasets (P1-P3) from 
+different permutations of 2 replicates in PC. The HC consensus datasets remained 
+unaltered. Next, we fitted three 15-state ChromHMM models (M1-M3) based on each 
+dataset, and compared the results (emmission probabilities) between the different
+models including M0 (based on P0 dataset).
+
+
+## P0
+
+```{r}
+c(list.files(path = "input/hidden_domain/PC/"),
+  list.files(path = "input/hidden_domain/HC/"))
+```
+
+## P1
+
+```{r}
+list.files(path = "output/chromhmm_permutations/hidden_domain_bins/P1/")
+```
+
+## P2
+
+```{r}
+list.files(path = "output/chromhmm_permutations/hidden_domain_bins/P2/")
+```
+
+## P3
+
+```{r}
+list.files(path = "output/chromhmm_permutations/hidden_domain_bins/P3/")
+```
+
+
+
+
+
+
+```{r}
+
+marks <- getMarks()
+
+# M0
+peak.files <- list.files(path = "input/hidden_domain/PC/", full.names = TRUE)
+peak.files.short <- list.files(path = "input/hidden_domain/PC/", full.names = FALSE)
+
+peak.data <- c()
+peak.data.chr <- c()
+
+
+for(i in 1:length(peak.files)) {
+  temp <- read.csv(file = peak.files[i], header = F, sep = "\t", as.is = T)
+  temp$peak.count <- 1
+  temp$chr <- temp$V1
+  temp$coverage <- temp$V3-temp$V2
+  
+  if(any(temp$coverage < 0)) {
+    warning("coverage < 0")
+  }
+  
+  # mark
+  mark.key <- unlist(strsplit(x = peak.files.short[i], split = "-"))[2]
+  
+  # chr
+  temp.chr.counts <- aggregate(formula = peak.count~chr, data = temp, FUN = sum)
+  temp.chr.coverage <- aggregate(formula = coverage~chr, data = temp, FUN = sum)
+  temp.chr <- merge(x = temp.chr.counts, y = temp.chr.coverage, by = "chr")
+  temp.chr$peak.coverage.mb <- temp.chr$coverage/10^6
+  temp.chr$file <- peak.files[i]
+  temp.chr$file.short <- peak.files.short[i]
+  temp.chr$cell.type <- "PC"
+  temp.chr$mark <- mark.key
+  temp.chr$consensus <- "x3"
+  temp.chr$permutation <- 0
+  peak.data.chr <- rbind(peak.data.chr, temp.chr)
+  rm(temp.chr.counts, temp.chr.coverage)
+  
+  row <- data.frame(peak.count = nrow(temp), peak.coverage.mb = sum(temp$coverage)/10^6,
+                    file = peak.files[i], file.short = peak.files.short[i], cell.type = "PC",
+                    mark = mark.key, consensus = "x3", permutation = 0, 
+                    stringsAsFactors = FALSE)
+  peak.data <- rbind(peak.data, row)
+}
+rm(i, row, temp)
+
+
+
+# permutations: PC
+peak.files <- list.files(path = "input/hidden_domain/permutations/", full.names = TRUE)
+peak.files.short <- list.files(path = "input/hidden_domain/permutations/", full.names = FALSE)
+
+for(i in 1:length(peak.files)) {
+  temp <- read.csv(file = peak.files[i], header = F, sep = "\t", as.is = T)
+  temp$peak.count <- 1
+  temp$chr <- temp$V1
+  temp$coverage <- temp$V3-temp$V2
+  
+  if(any(temp$coverage < 0)) {
+    warning("coverage < 0")
+  }
+
+  # mark
+  mark.key <- unlist(strsplit(x = peak.files.short[i], split = "\\_Intersect"))[1]
+  mark.key <- gsub(pattern = "Col2|HC\\_|PC\\_", replacement = '', x = mark.key)
+  
+  # permutation group
+  p.group <- i %% 3 + 1
+  p.group[p.group == 0] <- 3
+  
+  # chr
+  temp.chr.counts <- aggregate(formula = peak.count~chr, data = temp, FUN = sum)
+  temp.chr.coverage <- aggregate(formula = coverage~chr, data = temp, FUN = sum)
+  temp.chr <- merge(x = temp.chr.counts, y = temp.chr.coverage, by = "chr")
+  temp.chr$peak.coverage.mb <- temp.chr$coverage/10^6
+  temp.chr$file <- peak.files[i]
+  temp.chr$file.short <- peak.files.short[i]
+  temp.chr$cell.type <- "PC"
+  temp.chr$mark <- mark.key
+  temp.chr$consensus <- "x2"
+  temp.chr$permutation <- p.group
+  peak.data.chr <- rbind(peak.data.chr, temp.chr)
+  rm(temp.chr.counts, temp.chr.coverage)
+
+  row <- data.frame(peak.count = nrow(temp), peak.coverage.mb = sum(temp$coverage)/10^6,
+                    file = peak.files[i], file.short = peak.files.short[i], cell.type = "PC",
+                    mark = mark.key, consensus = "x2", permutation = p.group,
+                    stringsAsFactors = FALSE)
+  peak.data <- rbind(peak.data, row)
+}
+rm(i, row, temp)
+
+
+
+# permutations: HC
+peak.files <- list.files(path = "input/hidden_domain/HC/", full.names = TRUE)
+peak.files.short <- list.files(path = "input/hidden_domain/HC/", full.names = FALSE)
+
+for(i in 1:length(peak.files)) {
+  temp <- read.csv(file = peak.files[i], header = F, sep = "\t", as.is = T)
+  temp$peak.count <- 1
+  temp$chr <- temp$V1
+  temp$coverage <- temp$V3-temp$V2
+  
+  if(any(temp$coverage < 0)) {
+    warning("coverage < 0")
+  }
+  
+  # mark
+  mark.key <- unlist(strsplit(x = peak.files.short[i], split = "-"))[2]
+  
+  # chr
+  temp.chr.counts <- aggregate(formula = peak.count~chr, data = temp, FUN = sum)
+  temp.chr.coverage <- aggregate(formula = coverage~chr, data = temp, FUN = sum)
+  temp.chr <- merge(x = temp.chr.counts, y = temp.chr.coverage, by = "chr")
+  temp.chr$peak.coverage.mb <- temp.chr$coverage/10^6
+  temp.chr$file <- peak.files[i]
+  temp.chr$file.short <- peak.files.short[i]
+  temp.chr$cell.type <- "HC"
+  temp.chr$mark <- mark.key
+  temp.chr$consensus <- "x2"
+  temp.chr$permutation <- 0
+  peak.data.chr <- rbind(peak.data.chr, temp.chr)
+  rm(temp.chr.counts, temp.chr.coverage)
+  
+  row <- data.frame(peak.count = nrow(temp), peak.coverage.mb = sum(temp$coverage)/10^6,
+                    file = peak.files[i], file.short = peak.files.short[i], cell.type = "HC",
+                    mark = mark.key, consensus = "x2", permutation = 0,
+                    stringsAsFactors = FALSE)
+  peak.data <- rbind(peak.data, row)
+}
+rm(i, row, temp, temp.chr, p.group, mark.key)
+```
+
+
+
+# Comparison of consensus peaks numbers and coverages
+
+## How many consensus peaks are there in PC and HC for different mark?
+  
+  * x2 = consensus based on replicates
+  * x3 = consensus based on triplicates
+
+```{r, fig.width=9, fig.height=4}
+peak.data$mark <- factor(x = peak.data$mark, levels = marks)
+peak.data$cell.type <- factor(x = peak.data$cell.type, levels = c("PC", "HC"))
+
+g1 <- ggplot(data = peak.data)+
+  geom_jitter(aes(x = mark, y = peak.count, col = cell.type, shape = consensus), 
+              width = 0.15, height = 0)+
+  theme_bw(base_size = 12)+
+  scale_y_log10()+
+  theme(legend.position = "top", axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.4))+
+  # theme(legend.position = "top")+
+  annotation_logticks(base = 10, sides = "l")+
+  xlab(label = "Mark")+
+  ylab(label = "Number of consensus peaks")+
+  scale_color_manual(name = "Cell type", values = cell.type.col)+
+  scale_shape_manual(name = "Consensus setup", values = c(1, 3))
+
+peak.ratio.data <- c()
+for(m in marks) {
+  temp.PC <- peak.data[peak.data$mark == m & peak.data$cell.type == "PC", ]
+  temp.HC <- peak.data[peak.data$mark == m & peak.data$cell.type == "HC", ]
+  temp.PC$ratio <- temp.PC$peak.count/temp.HC$peak.count
+  peak.ratio.data <- rbind(peak.ratio.data, temp.PC)
+}
+rm(m, temp.PC, temp.HC)
+
+
+peak.ratio.data$mark <- factor(x = peak.ratio.data$mark, levels = marks)
+
+g2 <- ggplot(data = peak.ratio.data)+
+  geom_hline(yintercept = 1, linetype = "dashed", col = "darkgray")+
+  geom_jitter(aes(x = mark, y = ratio, shape = consensus), width = 0.15, height = 0)+
+  theme_bw(base_size = 12)+
+  theme(legend.position = "top", axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.4))+
+  # theme(legend.position = "top")+
+  xlab(label = "Mark")+
+  ylab(label = "Ratio of the number of consensus peaks (PC/HC)")+
+  scale_shape_manual(name = "Consensus setup", values = c(1, 3))+
+  scale_y_continuous(breaks = c(0.5, 1, 1.5, 2, 2.5),
+                     labels = c(0.5, 1, 1.5, 2, 2.5),
+                     limits = c(0.5, 2.5))
+
+g <- gridExtra::arrangeGrob(g1, g2, nrow = 1, widths = c(0.6, 0.4))
+plot(g)
+ggsave(filename = paste0("output/chromhmm_robustness/ComparisonPeaks.tiff"),
+       plot = g, device = "tiff", width = 9, height = 4.5, dpi = 300)
+```
+
+
+
+
+
+
+## Similar story across different chromosomes?
+  
+  * x2 = consensus based on replicates
+  * x3 = consensus based on triplicates
+  * For number of peaks = 0 the symbol would not be shown (e.g. chr Y)
+
+```{r, fig.width=9, fig.height=12}
+peak.data.chr$mark <- factor(x = peak.data.chr$mark, levels = marks)
+peak.data.chr$cell.type <- factor(x = peak.data.chr$cell.type, levels = c("PC", "HC"))
+
+ggplot(data = peak.data.chr)+
+  facet_wrap(facets = ~chr, ncol = 3, scales = "free_y")+
+  geom_jitter(aes(x = mark, y = peak.count, col = cell.type, shape = consensus), 
+              width = 0.15, height = 0)+
+  theme_bw(base_size = 12)+
+  scale_y_log10()+
+  theme(legend.position = "top", axis.text.x = element_text(
+    angle = 90, hjust = 1, vjust = 0.4))+
+  annotation_logticks(base = 10, sides = "l")+
+  xlab(label = "Mark")+
+  ylab(label = "Number of consensus peaks")+
+  scale_color_manual(name = "Cell type", values = cell.type.col)+
+  scale_shape_manual(name = "Consensus setup", values = c(1, 3))
+```
+
+
+
+
+## What is the peak coverage (in Mbs) in PC and HC for different marks?
+  
+  * x2 = consensus based on replicates
+  * x3 = consensus based on triplicates
+
+```{r, fig.width=9, fig.height=4}
+peak.data$mark <- factor(x = peak.data$mark, levels = marks)
+peak.data$cell.type <- factor(x = peak.data$cell.type, levels = c("PC", "HC"))
+
+g1 <- ggplot(data = peak.data)+
+  geom_jitter(aes(x = mark, y = peak.coverage.mb, col = cell.type, 
+                  shape = consensus), width = 0.15, height = 0)+
+  theme_bw(base_size = 12)+
+  scale_y_log10()+
+  theme(legend.position = "top", axis.text.x = element_text(
+    angle = 90, vjust = 0.4, hjust = 1))+
+  annotation_logticks(base = 10, sides = "l")+
+  xlab(label = "Mark")+
+  ylab(label = "Peak coverage [Mbs]")+
+  scale_color_manual(name = "Cell type", values = cell.type.col)+
+  scale_shape_manual(name = "Consensus setup", values = c(1, 3))
+
+marks <- getMarks()
+peak.ratio.data <- c()
+for(m in marks) {
+  temp.PC <- peak.data[peak.data$mark == m & peak.data$cell.type == "PC", ]
+  temp.HC <- peak.data[peak.data$mark == m & peak.data$cell.type == "HC", ]
+  temp.PC$ratio <- temp.PC$peak.coverage.mb/temp.HC$peak.coverage.mb
+  peak.ratio.data <- rbind(peak.ratio.data, temp.PC)
+}
+rm(m, temp.PC, temp.HC)
+
+peak.ratio.data$mark <- factor(x = peak.ratio.data$mark, levels = marks)
+
+g2 <- ggplot(data = peak.ratio.data)+
+  geom_hline(yintercept = 1, linetype = "dashed", col = "darkgray")+
+  geom_jitter(aes(x = mark, y = ratio, shape = consensus), width = 0.15, height = 0)+
+  theme_bw(base_size = 12)+
+  theme(legend.position = "top", axis.text.x = element_text(
+    angle = 90, vjust = 0.4, hjust = 1))+
+  xlab(label = "Mark")+
+  ylab(label = "Ratio of peak coverage (PC/HC) [Mbs]")+
+  scale_shape_manual(name = "Consensus setup", values = c(1, 3))
+
+
+g <- gridExtra::arrangeGrob(g1, g2, nrow = 1, widths = c(0.6, 0.4))
+plot(g)
+ggsave(filename = "output/chromhmm_robustness/ComparisonPeaksCoverage.tiff",
+       plot = g, device = "tiff", width = 9, height = 4.5, dpi = 300)
+```
+
+## Similar picture across chromosomes?
+  
+  * x2 = consensus based on replicates
+  * x3 = consensus based on triplicates
+  * For coverage = 0 the symbol would not be shown (e.g. chr Y)
+  * **Important: Look at coverage of H3K27me3 in chromosome X**
+
+```{r, fig.width=9, fig.height=12}
+ggplot(data = peak.data.chr)+
+  facet_wrap(facets = ~chr, ncol = 3, scales = "free_y")+
+  geom_jitter(aes(x = mark, y = peak.coverage.mb, col = cell.type, 
+                  shape = consensus), width = 0.15, height = 0)+
+  theme_bw(base_size = 12)+
+  scale_y_log10()+
+  theme(legend.position = "top", axis.text.x = element_text(
+    angle = 90, hjust = 1, vjust = 0.4))+
+  annotation_logticks(base = 10, sides = "l")+
+  xlab(label = "Mark")+
+  ylab(label = "Peak coverage [Mbs]")+
+  scale_color_manual(name = "Cell type", values = cell.type.col)+
+  scale_shape_manual(name = "Consensus setup", values = c(1, 3))
+```
+
+
+
+```{r, fig.width=4, fig.height=4}
+g <- ggplot(data = peak.data.chr[peak.data.chr$chr %in% c("chr1", "chr10", "chrX", "chrY"), ])+
+  facet_wrap(facets = ~chr, ncol = 2, scales = "free_y")+
+  geom_jitter(aes(x = mark, y = peak.coverage.mb, col = cell.type, 
+                  shape = consensus), width = 0.15, height = 0)+
+  theme_bw(base_size = 12)+
+  scale_y_log10()+
+  theme(legend.position = "top", axis.text.x = element_text(
+    angle = 90, hjust = 1, vjust = 0.4))+
+  annotation_logticks(base = 10, sides = "l")+
+  xlab(label = "Mark")+
+  ylab(label = "Peak coverage [Mbs]")+
+  scale_color_manual(name = "Cell type", values = cell.type.col)+
+  scale_shape_manual(name = "Consensus setup", values = c(1, 3))
+
+ggsave(filename = "output/chromhmm_robustness/ComparisonPeaksCoverage_4chrs.tiff",
+       plot = g, device = "tiff", width = 5.25, height = 4.5, dpi = 300)
+```
+
+
+
+
+# Comparison of ChromHMM results
+
+## Hiearchical clustering of states between models (M0-M4)
+
+Ideally, we would expect each branch in the hierarchical tree to contain four 
+leaves (one from each model). For most states this is the case. 
+
+```{r, fig.width=10, fig.height=5}
+et.p0 <- getEmissionsAndTransitions(
+  nr.states = 15, chrom.dir = "output/chromhmm/")
+et.p1 <- getEmissionsAndTransitions(
+  nr.states = 15, chrom.dir = "output/chromhmm_permutations/chromhmm/P1/")
+et.p2 <- getEmissionsAndTransitions(
+  nr.states = 15, chrom.dir = "output/chromhmm_permutations/chromhmm/P2/")
+et.p3 <- getEmissionsAndTransitions(
+  nr.states = 15, chrom.dir = "output/chromhmm_permutations/chromhmm/P3/")
+
+
+e.p0 <- et.p0$emission
+e.p1 <- et.p1$emission
+e.p2 <- et.p2$emission
+e.p3 <- et.p3$emission
+
+
+e.p0$model <- "M0" 
+e.p1$model <- "M1" 
+e.p2$model <- "M2" 
+e.p3$model <- "M3" 
+
+
+e <- rbind(e.p0, e.p1, e.p2, e.p3)
+rm(e.p0, e.p1, e.p2, e.p3, e.LB)
+
+
+e.m <- acast(data = e, formula = model+state~mark, 
+             fun.aggregate = mean, value.var = "emission")
+e.m <- data.frame(e.m)
+e.m <- e.m[order(e.m[, 1], e.m[, 2], e.m[, 3],
+                 e.m[, 4], e.m[, 5], e.m[, 6],
+                 decreasing = T),]
+
+d <- dist(x = e.m, method = "euclidean")
+h <- hclust(d, method = "average")
+
+tiff(filename = "output/chromhmm_robustness/hierarchical_clustering.tiff",
+     width = 10, height = 5, units = "in", res = 300)
+plot(h, main = "Hierarchical clustering (link = average)",
+     ylab = "Euclidean distance", xlab = '')
+dev.off()
+
+plot(h, main = "Hierarchical clustering (link = average)",
+     ylab = "Euclidean distance", xlab = '')
+```
+
+
+```{r}
+h.clust <- cutree(tree = h, h = 0.5)
+t.clust <- data.frame(table(h.clust))
+t.clust$generalized.cluster <- as.character(t.clust$h.clust)
+t.clust$generalized.cluster[t.clust$Freq < 3] <- 0
+
+e$cluster <- NA
+for(gc in unique(t.clust$generalized.cluster)) {
+  states <- names(h.clust[h.clust %in% t.clust$h.clust[t.clust$generalized.cluster == gc]])
+  states <- do.call(rbind, strsplit(x = states, split = "_"))
+  for(i in 1:nrow(states)) {
+    e$cluster[which(e$model == states[i, 1] & e$state == states[i, 2])] <- gc
+  }
+}
+
+
+rm(i, gc, h.clust, t.clust, states)
+```
+
+
+## Emissions diagrams
+  * state cluster is cluster of 4 ChromHMM states obtained from the cluster dendrogram 
+  * hint: outlying states were merged together (difference is expected)
+  * state (dark red text) is state ID set by ChromHMM
+
+```{r, fig.width=14, fig.height=8}
+e$mark <- as.character(e$mark)
+e$mark <- factor(x = e$mark, levels = getMarks())
+
+e$cluster <- as.numeric(e$cluster)
+e <- e[order(e$cluster, decreasing = T), ]
+e$cluster <- factor(x = e$cluster, levels = unique(e$cluster))
+
+g1 <- ggplot(data = e)+
+  facet_wrap(facets = ~model, nrow = 1)+
+  geom_tile(aes(x = mark, y = as.factor(cluster), fill = emission), col = "black")+
+  theme_bw(base_size = 12)+
+  scale_fill_continuous(name = "P", low = "white", high = "#4682b4", limits = c(0, 1))+
+  geom_text(aes(x = mark, y = as.factor(cluster), label = round(emission, 3)), 
+            col = "black", size = 3.55)+
+  ylab("State cluster")+
+  theme(legend.position = "left")+
+  scale_x_discrete("Mark")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.4))
+
+g2 <- ggplot(data = e)+
+  facet_wrap(facets = ~model, nrow = 1)+
+  theme_bw(base_size = 12)+
+   geom_tile(aes(x = "Model state", y = as.factor(cluster)), 
+             fill = "white", col = "black")+
+  geom_text(aes(x = "Model state", y = as.factor(cluster), label = state),
+            col = "darkred", size = 3.55)+
+  ylab("State cluster")+
+  scale_x_discrete("Models")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.4))
+
+g <- gridExtra::arrangeGrob(g1, g2, ncol = 2, widths = c(0.8, 0.2))
+
+ggsave(filename = paste0("output/chromhmm_robustness/E.tiff"),
+       plot = g, device = "tiff", width = 14, height = 8, dpi = 300)
+plot(g)
+```
+
+
+```{r}
+states.p0 <- getStatesChromHmm(
+  nr.states = 15, chrom.dir = "output/chromhmm/")
+states.p1 <- getStatesChromHmm(
+  nr.states = 15, chrom.dir = "output/chromhmm_permutations/chromhmm/P1/")
+states.p2 <- getStatesChromHmm(
+  nr.states = 15, chrom.dir = "output/chromhmm_permutations/chromhmm/P2/")
+states.p3 <- getStatesChromHmm(
+  nr.states = 15, chrom.dir = "output/chromhmm_permutations/chromhmm/P3/")
+
+pc.p0 <- data.frame(table(states.p0$states.P))
+colnames(pc.p0) <- c("state", "pc.freq")
+hc.p0 <- data.frame(table(states.p0$states.H))
+colnames(hc.p0) <- c("state", "hc.freq")
+freq.p0 <- merge(x = pc.p0, y = hc.p0, by = "state")
+freq.p0$pc.pct <- freq.p0$pc.freq/sum(freq.p0$pc.freq)*100
+freq.p0$hc.pct <- freq.p0$hc.freq/sum(freq.p0$hc.freq)*100
+freq.p0$model <- "M0"
+rm(pc.p0, hc.p0)
+
+
+pc.p1 <- data.frame(table(states.p1$states.P))
+colnames(pc.p1) <- c("state", "pc.freq")
+hc.p1 <- data.frame(table(states.p1$states.H))
+colnames(hc.p1) <- c("state", "hc.freq")
+freq.p1 <- merge(x = pc.p1, y = hc.p1, by = "state")
+freq.p1$pc.pct <- freq.p1$pc.freq/sum(freq.p1$pc.freq)*100
+freq.p1$hc.pct <- freq.p1$hc.freq/sum(freq.p1$hc.freq)*100
+freq.p1$model <- "M1"
+rm(pc.p1, hc.p1)
+
+
+pc.p2 <- data.frame(table(states.p2$states.P))
+colnames(pc.p2) <- c("state", "pc.freq")
+hc.p2 <- data.frame(table(states.p2$states.H))
+colnames(hc.p2) <- c("state", "hc.freq")
+freq.p2 <- merge(x = pc.p2, y = hc.p2, by = "state")
+freq.p2$pc.pct <- freq.p2$pc.freq/sum(freq.p2$pc.freq)*100
+freq.p2$hc.pct <- freq.p2$hc.freq/sum(freq.p2$hc.freq)*100
+freq.p2$model <- "M2"
+rm(pc.p2, hc.p2)
+
+
+pc.p3 <- data.frame(table(states.p3$states.P))
+colnames(pc.p3) <- c("state", "pc.freq")
+hc.p3 <- data.frame(table(states.p3$states.H))
+colnames(hc.p3) <- c("state", "hc.freq")
+freq.p3 <- merge(x = pc.p3, y = hc.p3, by = "state")
+freq.p3$pc.pct <- freq.p3$pc.freq/sum(freq.p3$pc.freq)*100
+freq.p3$hc.pct <- freq.p3$hc.freq/sum(freq.p3$hc.freq)*100
+freq.p3$model <- "M3"
+rm(pc.p3, hc.p3)
+
+freq.data <- rbind(freq.p0, freq.p1, freq.p2, freq.p3)
+rm(freq.p0, freq.p1, freq.p2, freq.p3)
+
+temp <- e[duplicated(e[, c("model", "state", "cluster")]) == F, 
+          c("model", "state", "cluster")]
+freq.data <- merge(x = freq.data, y = temp, by = c("model", "state"))
+rm(temp)
+```
+
+
+## Comparison of the frequency of bins having different ChromHMM states
+
+```{r, fig.width=8, fig.height=4}
+cluster.levels <- sort(as.numeric(as.character(unique(freq.data$cluster))))
+freq.data$cluster <- factor(x = freq.data$cluster, levels = cluster.levels)
+
+g <- ggplot(data = freq.data)+
+  geom_hline(yintercept = 1, linetype = "dashed", col = "darkgray")+
+  geom_jitter(aes(x = as.factor(cluster), y = pc.freq/hc.freq, col = model), 
+              width = 0.15, height = 0, size = 1.5, alpha = 0.75)+
+  theme_bw(base_size = 12)+
+  theme(legend.position = "top")+
+  xlab(label = "State cluster")+
+  ylab(label = "Ratio of number of bins with state (PC/HC)")+
+  scale_color_manual(name = "Model",
+                     values = c("M0" = "red", "M1" = "lightgray", 
+                                "M2" = "gray", "M3" = "darkgray"))
+
+ggsave(filename = paste0("output/chromhmm_robustness/ComparisonBins.tiff"),
+       plot = g, device = "tiff", width = 6, height = 4, dpi = 300)
+g
+```
+
+## Table with frequency of bins with different ChromHMM states
+  
+  * first number = %
+  * number in paranthesis = count of bins / 1000
+  * column named state (dark red text) indicates the state ID set by ChromHMM
+
+```{r, fig.width=18, fig.height=8}
+g <- ggplot(data = freq.data)+
+  facet_wrap(facets = ~model, nrow = 1)+
+  scale_fill_continuous(name = "P", low = "white", high = "#4682b4", limits = c(0, 1))+
+  geom_tile(aes(x = " PC", y = as.factor(cluster)), fill = "white", col = "black")+
+  geom_tile(aes(x = "HC", y = as.factor(cluster)), fill = "white", col = "black")+
+  geom_tile(aes(x = "State", y = as.factor(cluster)), fill = "white", col = "black")+
+  geom_text(aes(x = " PC", y = as.factor(cluster), 
+                label = paste(round(x = pc.pct, digits = 2), "% (", 
+                              round(x = pc.freq/1000, digits = 2), ")", 
+                              sep = '')),col = "black", size = 3.55)+
+  geom_text(aes(x = "HC", y = as.factor(cluster), 
+                label = paste(round(x = hc.pct, digits = 2), "% (", 
+                              round(x = hc.freq/1000, digits = 2), ")", sep = '')),
+                col = "black", size = 3.55)+
+  geom_text(aes(x = "State", y = as.factor(cluster), label = state), 
+            col = "darkred", size = 3.55)+
+  xlab("")+
+  ylab("State cluster")+
+  theme_bw(base_size = 12)+
+  theme(legend.position = "top")
+
+ggsave(filename = paste0("output/chromhmm_robustness/StatsBins.tiff"),
+       plot = g, device = "tiff", width = 17, height = 6, dpi = 300)
+g
+```
+
+## Sanity check [for me]
+
+  * coverage delta should be 0 if all peaks match ChromHMM bins
+
+```{r}
+del.chr <- paste0(paste(paste0("S", 1:100), collapse = "|"), 
+                  paste(paste0("ID", 1:100), collapse = "|"),
+                  "|\\.bed|-|Intersect|PC\\.|HC\\.|PC-|HC-", collapse = '')
+# hidden domain data
+## M0
+peak.files <- list.files(path = "input/hidden_domain/PC/", full.names = TRUE)
+peak.files.short <- list.files(path = "input/hidden_domain/PC/", full.names = FALSE)
+
+peak.coverage.data <- c()
+for(i in 1:length(peak.files)) {
+  temp <- read.csv(file = peak.files[i], header = F, sep = "\t", as.is = T)
+  
+  mark.key <- gsub(pattern = del.chr, replacement = '', x = peak.files.short[i])
+  
+  row <- data.frame(peak.coverage = sum(temp$V3-temp$V2), file = peak.files[i],
+                    file.short = peak.files.short[i], cell.type = "PC",
+                    mark = mark.key, consensus = "x3", model = 0,
+                    stringsAsFactors = FALSE)
+  peak.coverage.data <- rbind(peak.coverage.data, row)
+}
+rm(i, row, temp)
+
+
+
+## permutations: PC
+peak.files <- list.files(path = "input/hidden_domain/permutations/", full.names = TRUE)
+peak.files.short <- list.files(path = "input/hidden_domain/permutations/", full.names = FALSE)
+
+peak.coverage.data.temp <- c()
+for(i in 1:length(peak.files)) {
+  temp <- read.csv(file = peak.files[i], header = F, sep = "\t", as.is = T)
+  
+  mark.key <- unlist(strsplit(x = peak.files.short[i], split = "\\_Intersect"))[1]
+  mark.key <- gsub(pattern = "Col2|HC\\_|PC\\_", replacement = '', x = mark.key)
+  
+  row <- data.frame(peak.coverage = sum(temp$V3-temp$V2), file = peak.files[i],
+                    file.short = peak.files.short[i], cell.type = "PC",
+                    mark = mark.key, consensus = "x2", stringsAsFactors = FALSE)
+  peak.coverage.data.temp <- rbind(peak.coverage.data.temp, row)
+}
+peak.coverage.data.temp$model <- rep(x = 1:3, times = 6)
+peak.coverage.data <- rbind(peak.coverage.data, peak.coverage.data.temp)
+rm(i, row, temp, peak.coverage.data.temp)
+
+
+
+## permutations: HC
+peak.files <- list.files(path = "input/hidden_domain/HC/", full.names = TRUE)
+peak.files.short <- list.files(path = "input/hidden_domain/HC/", full.names = FALSE)
+
+for(i in 1:length(peak.files)) {
+  temp <- read.csv(file = peak.files[i], header = F, sep = "\t", as.is = T)
+  
+  mark.key <- gsub(pattern = del.chr, replacement = '', x = peak.files.short[i])
+  
+  row <- data.frame(peak.coverage = sum(temp$V3-temp$V2), file = peak.files[i],
+                    file.short = peak.files.short[i], cell.type = "HC",
+                    mark = mark.key, consensus = "x2", model = 0,
+                    stringsAsFactors = FALSE)
+  peak.coverage.data <- rbind(peak.coverage.data, row)
+}
+rm(i, row, temp)
+
+
+
+
+# ChromHMM input data: P1-P3
+bin.coverage.data <- c()
+for(p in 1:3) {
+  
+  bin.files <- list.files(path = paste("output/chromhmm_permutations/chromhmm/P", p, "/", sep = ''), 
+                          full.names = TRUE, pattern = "PC\\_chr")
+  bin.files.short <- list.files(path = paste("output/chromhmm_permutations/chromhmm/P", p, "/", sep = ''), 
+                          full.names = FALSE, pattern = "PC\\_chr")
+  
+  for(i in 1:length(bin.files)) {
+    
+    temp <- read.csv(file = bin.files[i], header = F, sep = "\t", as.is = T)
+    
+    marks <- as.character(temp[2, 1:ncol(temp)])
+    for(j in 1:ncol(temp)) {
+      row <- data.frame(mark = marks[j],
+                        cell.type = "PC",
+                        chr = i,
+                        model = p,
+                        bin.file = bin.files[i],
+                        bin.file.short = bin.files.short[i],
+                        bin.count = sum(temp[, j] == "1"),
+                        stringsAsFactors = FALSE)
+      
+      bin.coverage.data <- rbind(bin.coverage.data, row)
+    }
+  }
+}
+rm(p, bin.files, bin.files.short, i, temp, row, j)
+
+
+
+# ChromHMM input data: P0 (PC)
+bin.files <- list.files(path = "output/chromhmm/", full.names = TRUE, pattern = "PC\\_chr")
+bin.files.short <- list.files(path = "output/chromhmm/", full.names = FALSE, pattern = "PC\\_chr")
+
+for(i in 1:length(bin.files)) {
+  
+  temp <- read.csv(file = bin.files[i], header = F, sep = "\t", as.is = T)
+  
+  marks <- as.character(temp[2, 1:ncol(temp)])
+  for(j in 1:ncol(temp)) {
+    row <- data.frame(mark = marks[j],
+                      cell.type = "PC",
+                      chr = i,
+                      model = 0,
+                      bin.file = bin.files[i],
+                      bin.file.short = bin.files.short[i],
+                      bin.count = sum(temp[, j] == "1"),
+                      stringsAsFactors = FALSE)
+    
+    bin.coverage.data <- rbind(bin.coverage.data, row)
+  }
+}
+rm(p, bin.files, bin.files.short, i, temp, row, j)
+
+
+
+# ChromHMM input data: P0 (HC)
+bin.files <- list.files(path = "output/chromhmm/", full.names = TRUE, pattern = "HC\\_chr")
+bin.files.short <- list.files(path = "output/chromhmm/", full.names = FALSE, pattern = "HC\\_chr")
+
+for(i in 1:length(bin.files)) {
+  
+  temp <- read.csv(file = bin.files[i], header = F, sep = "\t", as.is = T)
+  
+  marks <- as.character(temp[2, 1:ncol(temp)])
+  for(j in 1:ncol(temp)) {
+    row <- data.frame(mark = marks[j],
+                      cell.type = "HC",
+                      chr = i,
+                      model = 0,
+                      bin.file = bin.files[i],
+                      bin.file.short = bin.files.short[i],
+                      bin.count = sum(temp[, j] == "1"),
+                      stringsAsFactors = FALSE)
+    
+    bin.coverage.data <- rbind(bin.coverage.data, row)
+  }
+}
+rm(p, bin.files, bin.files.short, i, temp, row, j)
+
+
+bin.coverage.data <- aggregate(bin.count~mark+model+cell.type, 
+                               data = bin.coverage.data,
+                               FUN = sum)
+bin.coverage.data$bin.coverage <- bin.coverage.data$bin.count*200
+
+
+coverage.data <- merge(
+  x = peak.coverage.data[, c("mark", "cell.type", "model", "peak.coverage")], 
+  y = bin.coverage.data[, c("mark", "cell.type", "model", "bin.coverage")],
+  by = c("mark", "cell.type", "model"))
+coverage.data$coverage.delta <- coverage.data$peak.coverage-coverage.data$bin.coverage
+# rm(peak.coverage.data, bin.coverage.data)
+
+coverage.data
+```
+
